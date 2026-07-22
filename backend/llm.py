@@ -14,11 +14,17 @@ Models are env-overridable so you can swap tiers without touching code:
 from __future__ import annotations
 
 import os
-from typing import Type, TypeVar
+import time
+from typing import Callable, Type, TypeVar
 
 from google import genai
+from google.genai import errors as genai_errors
 from google.genai import types
 from pydantic import BaseModel
+
+# Transient statuses worth retrying: overloaded, rate-limited, server errors.
+_RETRY_STATUS = {429, 500, 503}
+_MAX_ATTEMPTS = 4
 
 ROUTER_MODEL = os.environ.get("CP_TUTOR_ROUTER_MODEL", "gemini-2.5-flash-lite")
 MAIN_MODEL = os.environ.get("CP_TUTOR_MAIN_MODEL", "gemini-2.5-flash")
@@ -39,6 +45,22 @@ def _get_client() -> genai.Client:
     return _client
 
 
+def _with_retries(call: Callable[[], T]) -> T:
+    """Retry transient Gemini errors (503 overloaded, 429 rate-limited, 5xx)
+    with exponential backoff. Non-transient errors propagate immediately."""
+    delay = 0.6
+    for attempt in range(1, _MAX_ATTEMPTS + 1):
+        try:
+            return call()
+        except genai_errors.APIError as exc:
+            code = getattr(exc, "code", None)
+            if code not in _RETRY_STATUS or attempt == _MAX_ATTEMPTS:
+                raise
+            time.sleep(delay)
+            delay *= 2
+    raise RuntimeError("unreachable")  # pragma: no cover
+
+
 def _to_contents(messages: list[dict]) -> list[types.Content]:
     """Convert [{'role': 'user'|'assistant', 'content': str}] to Gemini contents.
     Gemini uses 'model' for the assistant role."""
@@ -53,11 +75,11 @@ def _to_contents(messages: list[dict]) -> list[types.Content]:
 
 def generate(system: str, messages: list[dict], model: str = MAIN_MODEL) -> str:
     """Plain text generation (tutor, verdict explainer)."""
-    resp = _get_client().models.generate_content(
+    resp = _with_retries(lambda: _get_client().models.generate_content(
         model=model,
         contents=_to_contents(messages),
         config=types.GenerateContentConfig(system_instruction=system),
-    )
+    ))
     return (resp.text or "").strip()
 
 
@@ -68,7 +90,7 @@ def generate_structured(
     model: str = MAIN_MODEL,
 ) -> T:
     """Structured generation validated against a Pydantic model (router, codegen)."""
-    resp = _get_client().models.generate_content(
+    resp = _with_retries(lambda: _get_client().models.generate_content(
         model=model,
         contents=_to_contents(messages),
         config=types.GenerateContentConfig(
@@ -76,7 +98,7 @@ def generate_structured(
             response_mime_type="application/json",
             response_schema=schema,
         ),
-    )
+    ))
     parsed = resp.parsed
     if isinstance(parsed, schema):
         return parsed

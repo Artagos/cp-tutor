@@ -47,6 +47,20 @@ def problem() -> dict:
 
 @app.post("/chat", response_model=ChatResponse)
 def chat(req: ChatRequest) -> ChatResponse:
+    try:
+        return _handle(req)
+    except Exception as exc:  # keep the UI usable on transient LLM/sandbox errors
+        return ChatResponse(
+            intent="error",
+            reply=(
+                "Sorry — I hit a temporary hiccup talking to the model "
+                "(it may be briefly overloaded). Please try that again."
+            ),
+            meta={"error": type(exc).__name__, "detail": str(exc)[:300]},
+        )
+
+
+def _handle(req: ChatRequest) -> ChatResponse:
     routed = router.route(req.message)
 
     if routed.intent == "strategy":
