@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CP Tutor</title>
+  <style>
+    :root { color-scheme: light dark; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font: 15px/1.5 system-ui, sans-serif;
+      display: grid; grid-template-columns: 340px 1fr; height: 100vh;
+    }
+    aside { padding: 20px; border-right: 1px solid #8883; overflow-y: auto; }
+    aside h1 { font-size: 18px; margin: 0 0 4px; }
+    aside .tags { color: #888; font-size: 13px; margin-bottom: 12px; }
+    aside pre { white-space: pre-wrap; font: 13px/1.45 ui-monospace, monospace; }
+    main { display: flex; flex-direction: column; min-width: 0; }
+    #log { flex: 1; overflow-y: auto; padding: 20px; }
+    .msg { max-width: 680px; margin: 0 0 14px; padding: 10px 14px; border-radius: 12px; white-space: pre-wrap; }
+    .user { background: #2563eb; color: #fff; margin-left: auto; }
+    .bot  { background: #8882; }
+    .tag  { display: inline-block; font-size: 11px; text-transform: uppercase;
+            letter-spacing: .04em; opacity: .6; margin-bottom: 4px; }
+    .code { font: 12px/1.4 ui-monospace, monospace; background: #0002;
+            padding: 8px; border-radius: 8px; margin-top: 8px; overflow-x: auto; }
+    form { display: flex; gap: 8px; padding: 16px; border-top: 1px solid #8883; }
+    textarea { flex: 1; resize: none; padding: 10px; border-radius: 8px;
+               border: 1px solid #8886; font: inherit; background: transparent; color: inherit; }
+    button { padding: 0 18px; border: 0; border-radius: 8px; background: #2563eb;
+             color: #fff; font: inherit; cursor: pointer; }
+    button:disabled { opacity: .5; cursor: default; }
+  </style>
+</head>
+<body>
+  <aside>
+    <h1>The problem</h1>
+    <div class="tags" id="tags"></div>
+    <pre id="statement">loading…</pre>
+  </aside>
+  <main>
+    <div id="log">
+      <div class="msg bot"><span class="tag">tutor</span>Describe the solution you
+have in mind and I'll run it — or ask me to explain any general concept. I won't
+tell you how to solve the problem, though; that part's yours.</div>
+    </div>
+    <form id="form">
+      <textarea id="input" rows="2" placeholder="Describe your approach, or ask a concept question…"></textarea>
+      <button id="send" type="submit">Send</button>
+    </form>
+  </main>
+
+  <script>
+    const log = document.getElementById("log");
+    const form = document.getElementById("form");
+    const input = document.getElementById("input");
+    const send = document.getElementById("send");
+    // tutor history only (concept turns); translator turns are one-shot
+    const history = [];
+
+    fetch("/problem").then(r => r.json()).then(p => {
+      document.getElementById("statement").textContent = p.statement;
+      document.getElementById("tags").textContent = "tags: " + p.tags.join(", ");
+    });
+
+    function add(role, text, tag, code) {
+      const el = document.createElement("div");
+      el.className = "msg " + (role === "user" ? "user" : "bot");
+      if (tag) { const t = document.createElement("span"); t.className = "tag"; t.textContent = tag; el.appendChild(t); }
+      el.appendChild(document.createTextNode(text));
+      if (code) { const c = document.createElement("pre"); c.className = "code"; c.textContent = code; el.appendChild(c); }
+      log.appendChild(el);
+      log.scrollTop = log.scrollHeight;
+    }
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const message = input.value.trim();
+      if (!message) return;
+      add("user", message);
+      input.value = "";
+      send.disabled = true;
+      add("bot", "…", "thinking");
+      const placeholder = log.lastChild;
+      try {
+        const resp = await fetch("/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message, history }),
+        });
+        const data = await resp.json();
+        placeholder.remove();
+        const code = data.meta && data.meta.cpp_source ? data.meta.cpp_source : null;
+        const tag = data.meta && data.meta.verdict ? data.intent + " · " + data.meta.verdict : data.intent;
+        add("bot", data.reply, tag, code);
+        if (data.intent === "concept") {
+          history.push({ role: "user", content: message });
+          history.push({ role: "assistant", content: data.reply });
+        }
+      } catch (err) {
+        placeholder.remove();
+        add("bot", "Something went wrong: " + err, "error");
+      } finally {
+        send.disabled = false;
+        input.focus();
+      }
+    });
+  </script>
+</body>
+</html>
