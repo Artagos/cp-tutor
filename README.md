@@ -21,16 +21,19 @@ I use a hash map here?"). No hints, no strategy — the learner does the thinkin
    deliberately **not given the problem's intended solution**, so it can't leak
    it. Problem-specific / strategy questions get a polite refusal.
 
-A cheap **intent router** (Haiku) decides which agent each message goes to.
+A cheap **intent router** decides which agent each message goes to.
+
+The LLM backend is **Google Gemini** (free tier) via the `google-genai` SDK,
+routed through a single shim (`backend/llm.py`) so the provider is swappable.
 
 ## Architecture
 
 ```
- Chat UI ──▶ Router (Haiku) ──┬─▶ Tutor (Opus)        conceptual Q&A, no hints
-                              ├─▶ Translator (Opus)   NL → C++ → sandbox
-                              └─▶ (refusal / chitchat handled inline)
-                                        │
-                                   Sandbox (Docker + g++)   compile & run vs tests
+ Chat UI ──▶ Router ──┬─▶ Tutor        conceptual Q&A, no hints
+   (Gemini flash-lite)├─▶ Translator   NL → C++ → sandbox
+                      └─▶ (refusal / chitchat handled inline)
+                                │
+                           Sandbox (Docker + g++)   compile & run vs tests
 ```
 
 ## The static problem (v0)
@@ -45,9 +48,10 @@ working-but-slow → TLE → the learner rethinks. See `backend/problem.py`.
 ```
 backend/
   main.py         FastAPI app + /chat endpoint
-  router.py       intent classifier (Haiku, structured output)
-  tutor.py        guardrailed conceptual Q&A (Opus)
-  translator.py   NL approach → C++ → sandbox → faithful verdict (Opus)
+  llm.py          Gemini shim (the only provider-specific file)
+  router.py       intent classifier (structured output)
+  tutor.py        guardrailed conceptual Q&A
+  translator.py   NL approach → C++ → sandbox → faithful verdict
   sandbox.py      host-side: build temp dir, invoke Docker, parse results
   problem.py      the static problem + generated test suite
   prompts.py      system prompts (pure-executor + no-hints rules live here)
@@ -61,7 +65,8 @@ frontend/
 
 ## Running it
 
-Prereqs: Python 3.11+, Docker Desktop running, an Anthropic credential.
+Prereqs: Python 3.11+, Docker Desktop running, a free Gemini API key
+(https://aistudio.google.com/apikey).
 
 ```bash
 # 1. Build the sandbox image (once)
@@ -70,8 +75,9 @@ docker build -t cp-tutor-sandbox ./sandbox
 # 2. Install backend deps
 pip install -r backend/requirements.txt
 
-# 3. Auth: either `ant auth login`, or set a key
-#    (PowerShell)  $env:ANTHROPIC_API_KEY = "sk-ant-..."
+# 3. Set your free Gemini key
+#    (PowerShell)  $env:GEMINI_API_KEY = "..."
+#    (bash)        export GEMINI_API_KEY=...
 
 # 4. Run the API
 uvicorn backend.main:app --reload --app-dir .

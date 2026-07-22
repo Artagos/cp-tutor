@@ -1,22 +1,20 @@
 """Translator (pure executor): NL approach -> C++ -> sandbox -> faithful verdict.
 
 Three steps:
-  1. Opus generates a C++ program implementing EXACTLY the described approach.
+  1. The LLM generates a C++ program implementing EXACTLY the described approach.
   2. The sandbox compiles & runs it against the test suite.
-  3. Opus phrases the verdict facts conversationally, under strict no-hints rules.
+  3. The LLM phrases the verdict facts conversationally, under strict no-hints rules.
 
 Step 3 only ever sees the deterministic verdict facts we hand it — never a
 license to invent strategy advice.
 """
 from __future__ import annotations
 
-import anthropic
 from pydantic import BaseModel
 
+from .llm import generate, generate_structured
 from .prompts import translator_codegen_system, VERDICT_EXPLAINER_SYSTEM
 from .sandbox import RunResult, run_cpp
-
-_client = anthropic.Anthropic()
 
 
 class GeneratedProgram(BaseModel):
@@ -27,21 +25,17 @@ class GeneratedProgram(BaseModel):
 
 
 def _generate_cpp(described_approach: str) -> GeneratedProgram:
-    resp = _client.messages.parse(
-        model="claude-opus-4-8",
-        max_tokens=4000,
-        thinking={"type": "adaptive"},
-        system=translator_codegen_system(),
-        messages=[{
+    return generate_structured(
+        translator_codegen_system(),
+        [{
             "role": "user",
             "content": (
                 "Here is the approach I want you to implement, exactly as "
                 f"described:\n\n{described_approach}"
             ),
         }],
-        output_format=GeneratedProgram,
+        GeneratedProgram,
     )
-    return resp.parsed_output
 
 
 def _verdict_facts(program: GeneratedProgram, run: RunResult) -> str:
@@ -86,13 +80,7 @@ def _verdict_facts(program: GeneratedProgram, run: RunResult) -> str:
 
 
 def _explain(facts: str) -> str:
-    resp = _client.messages.create(
-        model="claude-opus-4-8",
-        max_tokens=800,
-        system=VERDICT_EXPLAINER_SYSTEM,
-        messages=[{"role": "user", "content": facts}],
-    )
-    return "".join(b.text for b in resp.content if b.type == "text").strip()
+    return generate(VERDICT_EXPLAINER_SYSTEM, [{"role": "user", "content": facts}])
 
 
 class TranslationOutcome(BaseModel):

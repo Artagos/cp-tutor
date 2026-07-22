@@ -6,21 +6,11 @@ intended solution — so there is nothing to leak.
 """
 from __future__ import annotations
 
-import anthropic
-
+from .llm import generate
 from .prompts import tutor_system
-
-_client = anthropic.Anthropic()
 
 
 def answer(message: str, history: list[dict] | None = None) -> str:
     messages = list(history or [])
     messages.append({"role": "user", "content": message})
-    resp = _client.messages.create(
-        model="claude-opus-4-8",
-        max_tokens=1200,
-        thinking={"type": "adaptive"},
-        system=tutor_system(),
-        messages=messages,
-    )
-    return "".join(b.text for b in resp.content if b.type == "text").strip()
+    return generate(tutor_system(), messages)
