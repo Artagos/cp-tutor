@@ -75,9 +75,12 @@ docker build -t cp-tutor-sandbox ./sandbox
 # 2. Install backend deps
 pip install -r backend/requirements.txt
 
-# 3. Set your free Gemini key
-#    (PowerShell)  $env:GEMINI_API_KEY = "..."
-#    (bash)        export GEMINI_API_KEY=...
+# 3. Set your free Gemini key — either put it in a .env file (auto-loaded):
+#      cp .env.example .env   # then edit .env and paste your key
+#    or export it:
+#      (PowerShell)  $env:GEMINI_API_KEY = "..."
+#      (bash)        export GEMINI_API_KEY=...
+#    NOTE: .env is gitignored. Never put a real key in .env.example (tracked).
 
 # 4. Run the API
 uvicorn backend.main:app --reload --app-dir .
