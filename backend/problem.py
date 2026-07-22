@@ -54,6 +54,19 @@ Example
 # Topic tags are safe to reveal — they describe the problem area, not the answer.
 TAGS = ["arrays", "hashing", "sorting", "two-pointers"]
 
+# The ONLY thing the translator is allowed to know: the raw I/O shape, stripped
+# of all semantics. No mention of what the numbers mean, what to compute, or
+# what problem this is. This lets the translator read input and print output
+# while remaining unable to infer the intended solution.
+INPUT_FORMAT = """\
+Standard input:
+  - Line 1: two integers, separated by a space. Call them n and k.
+  - Line 2: n integers, separated by spaces.
+
+Standard output:
+  - Write the program's result to standard output.
+"""
+
 # Time limit the sandbox enforces per test. Calibrated so the intended O(n)/
 # O(n log n) solution finishes comfortably on the 10^6 case while the naive
 # O(n^2) solution (~10^12 operations) blows straight past it.
@@ -111,7 +124,8 @@ def build_tests() -> list[Test]:
 
 @dataclass
 class Problem:
-    statement: str = STATEMENT
+    statement: str = STATEMENT        # tutor + UI see this
+    input_format: str = INPUT_FORMAT  # translator sees ONLY this (no semantics)
     tags: list[str] = field(default_factory=lambda: list(TAGS))
     time_limit_ms: int = TIME_LIMIT_MS
     memory_limit_mb: int = MEMORY_LIMIT_MB

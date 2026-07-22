@@ -17,6 +17,13 @@ I use a hash map here?"). No hints, no strategy — the learner does the thinkin
    the user described. It never optimizes, corrects the algorithm, or names a
    better one. When a solution TLEs, that timeout is the teaching signal.
 
+   **The codegen step is blind to the problem.** It is given only the raw I/O
+   format and the user's algorithm — never the statement, constraints, or intended
+   solution — so it *cannot* infer a smarter approach or fill algorithmic gaps.
+   If the description is too vague/contradictory/infeasible to translate, it
+   **gates** (`verdict: UNCLEAR`) and tells the user exactly what it couldn't
+   turn into code, instead of guessing.
+
 2. **Tutor (guardrailed Q&A)** — answers general, abstract CS questions. It is
    deliberately **not given the problem's intended solution**, so it can't leak
    it. Problem-specific / strategy questions get a polite refusal.

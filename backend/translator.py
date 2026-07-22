@@ -1,7 +1,12 @@
 """Translator (pure executor): NL approach -> C++ -> sandbox -> faithful verdict.
 
-Three steps:
-  1. The LLM generates a C++ program implementing EXACTLY the described approach.
+The codegen step is deliberately BLIND to the problem: it sees only the raw I/O
+format and the learner's described algorithm (see prompts.translator_codegen_system).
+It cannot infer the intended solution, so it can only implement what was said.
+
+Steps:
+  1. The LLM turns the described approach into C++ — or GATES (can_implement=false)
+     with specific feedback if the description isn't implementable as stated.
   2. The sandbox compiles & runs it against the test suite.
   3. The LLM phrases the verdict facts conversationally, under strict no-hints rules.
 
@@ -18,10 +23,15 @@ from .sandbox import RunResult, run_cpp
 
 
 class GeneratedProgram(BaseModel):
-    cpp_source: str
-    # a plain-language restatement of the approach the code implements, so the
-    # user can confirm we understood them
-    approach_summary: str
+    # False when the description can't be faithfully turned into code — the
+    # translator must gate rather than guess an algorithmic step.
+    can_implement: bool
+    # populated only when can_implement is True
+    cpp_source: str = ""
+    approach_summary: str = ""   # one-line restatement of what was implemented
+    # populated only when can_implement is False — specifically what could not
+    # be turned into code and what the learner must clarify
+    blocking_issue: str = ""
 
 
 def _generate_cpp(described_approach: str) -> GeneratedProgram:
@@ -90,8 +100,30 @@ class TranslationOutcome(BaseModel):
     approach_summary: str
 
 
+def _gate_reply(issue: str) -> str:
+    return (
+        "I couldn't turn that into a working program yet — I only build exactly "
+        "what you describe, and something in the description wasn't complete "
+        "enough to translate into code. Here's what I couldn't resolve:\n\n"
+        f"{issue}\n\n"
+        "Fill in those details and I'll build it and run it."
+    )
+
+
 def translate_and_run(described_approach: str) -> TranslationOutcome:
     program = _generate_cpp(described_approach)
+
+    # Gate: the description wasn't implementable — return specific feedback and
+    # do NOT run anything.
+    if not program.can_implement:
+        return TranslationOutcome(
+            reply=_gate_reply(program.blocking_issue or
+                              "The described steps were too ambiguous to implement."),
+            cpp_source="",
+            verdict="UNCLEAR",
+            approach_summary="",
+        )
+
     run = run_cpp(program.cpp_source)
     facts = _verdict_facts(program, run)
     reply = _explain(facts)
