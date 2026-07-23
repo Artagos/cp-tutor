@@ -3,3 +3,5 @@ fastapi>=0.110.0
 uvicorn[standard]>=0.29.0
 pydantic>=2.6.0
 python-dotenv>=1.0.0
+cloudscraper>=1.2.71
+beautifulsoup4>=4.12.0

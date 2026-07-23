@@ -19,6 +19,7 @@ from pydantic import BaseModel
 
 from . import screener
 from .llm import generate, generate_structured
+from .problem import Problem
 from .prompts import translator_codegen_system, VERDICT_EXPLAINER_SYSTEM
 from .sandbox import RunResult, run_cpp
 
@@ -35,9 +36,9 @@ class GeneratedProgram(BaseModel):
     blocking_issue: str = ""
 
 
-def _generate_cpp(described_approach: str) -> GeneratedProgram:
+def _generate_cpp(problem: Problem, described_approach: str) -> GeneratedProgram:
     return generate_structured(
-        translator_codegen_system(),
+        translator_codegen_system(problem),
         [{
             "role": "user",
             "content": (
@@ -121,10 +122,10 @@ def _infeasible_reply(issue: str) -> str:
     )
 
 
-def translate_and_run(described_approach: str) -> TranslationOutcome:
+def translate_and_run(problem: Problem, described_approach: str) -> TranslationOutcome:
     # Pre-screen: is the described solution even possible/feasible? (Blind to the
     # problem — same clean context as codegen.) Runs before any code is written.
-    verdict = screener.screen(described_approach)
+    verdict = screener.screen(problem, described_approach)
     if not verdict.feasible:
         return TranslationOutcome(
             reply=_infeasible_reply(verdict.issue or
@@ -134,7 +135,7 @@ def translate_and_run(described_approach: str) -> TranslationOutcome:
             approach_summary="",
         )
 
-    program = _generate_cpp(described_approach)
+    program = _generate_cpp(problem, described_approach)
 
     # Gate: the description wasn't implementable — return specific feedback and
     # do NOT run anything.
@@ -147,7 +148,7 @@ def translate_and_run(described_approach: str) -> TranslationOutcome:
             approach_summary="",
         )
 
-    run = run_cpp(program.cpp_source)
+    run = run_cpp(problem, program.cpp_source)
 
     # Sandbox infrastructure failure (e.g. Docker down) — not the user's code.
     if run.infra_error:

@@ -13,7 +13,7 @@ import subprocess
 import tempfile
 from dataclasses import dataclass
 
-from .problem import PROBLEM
+from .problem import Problem
 
 IMAGE = os.environ.get("CP_TUTOR_SANDBOX_IMAGE", "cp-tutor-sandbox")
 
@@ -40,8 +40,8 @@ class RunResult:
         return None
 
 
-def run_cpp(source: str) -> RunResult:
-    """Compile and run `source` against the static problem's test suite."""
+def run_cpp(problem: Problem, source: str) -> RunResult:
+    """Compile and run `source` against the given problem's test suite."""
     with tempfile.TemporaryDirectory(prefix="cp_tutor_") as workdir:
         tests_dir = os.path.join(workdir, "tests")
         os.makedirs(tests_dir, exist_ok=True)
@@ -50,7 +50,7 @@ def run_cpp(source: str) -> RunResult:
             f.write(source)
 
         manifest_tests = []
-        for t in PROBLEM.tests:
+        for t in problem.tests:
             in_rel = f"tests/{t.name}.in"
             out_rel = f"tests/{t.name}.out"
             with open(os.path.join(workdir, in_rel), "w", newline="\n") as f:
@@ -62,14 +62,14 @@ def run_cpp(source: str) -> RunResult:
             )
 
         manifest = {
-            "time_limit_ms": PROBLEM.time_limit_ms,
-            "memory_limit_mb": PROBLEM.memory_limit_mb,
+            "time_limit_ms": problem.time_limit_ms,
+            "memory_limit_mb": problem.memory_limit_mb,
             "tests": manifest_tests,
         }
         with open(os.path.join(workdir, "manifest.json"), "w") as f:
             json.dump(manifest, f)
 
-        proc = _invoke_docker(workdir)
+        proc = _invoke_docker(problem, workdir)
 
         results_path = os.path.join(workdir, "results.json")
         if not os.path.exists(results_path):
@@ -91,9 +91,9 @@ def run_cpp(source: str) -> RunResult:
     return RunResult(ok=True, compile_error=None, results=payload["results"])
 
 
-def _invoke_docker(workdir: str) -> subprocess.CompletedProcess:
+def _invoke_docker(problem: Problem, workdir: str) -> subprocess.CompletedProcess:
     # Container-level caps; runner.py enforces finer per-test limits inside.
-    container_mem_mb = PROBLEM.memory_limit_mb + 128
+    container_mem_mb = problem.memory_limit_mb + 128
     cmd = [
         "docker", "run", "--rm",
         "--network=none",
@@ -104,5 +104,5 @@ def _invoke_docker(workdir: str) -> subprocess.CompletedProcess:
         IMAGE,
     ]
     # Generous overall ceiling; per-test timeouts are handled inside the container.
-    overall_timeout = (PROBLEM.time_limit_ms / 1000.0) * len(PROBLEM.tests) + 90
+    overall_timeout = (problem.time_limit_ms / 1000.0) * len(problem.tests) + 90
     return subprocess.run(cmd, timeout=overall_timeout, capture_output=True, text=True)

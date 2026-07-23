@@ -14,6 +14,7 @@ from __future__ import annotations
 from pydantic import BaseModel
 
 from .llm import generate_structured
+from .problem import Problem
 from .prompts import feasibility_screen_system
 
 
@@ -23,9 +24,9 @@ class ScreenResult(BaseModel):
     issue: str = ""
 
 
-def screen(described_approach: str) -> ScreenResult:
+def screen(problem: Problem, described_approach: str) -> ScreenResult:
     return generate_structured(
-        feasibility_screen_system(),
+        feasibility_screen_system(problem),
         [{
             "role": "user",
             "content": (

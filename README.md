@@ -52,24 +52,36 @@ routed through a single shim (`backend/llm.py`) so the provider is swappable.
                       └─▶ (refusal / chitchat handled inline)
 ```
 
-## The static problem (v0)
+## Problems: live from Codeforces
 
-**Count Pairs With Sum K.** A naive O(n²) double loop is the obvious first idea
-and *times out* on the n=10⁶ test; the intended O(n) hash-map / O(n log n)
-sort+two-pointer passes. This single problem exercises the whole loop:
-working-but-slow → TLE → the learner rethinks. See `backend/problem.py`.
+Problems are fetched from **Codeforces** (`backend/codeforces.py`). The CF API
+lists problems but doesn't expose statements or tests, and the problem pages are
+behind Cloudflare — so we use `cloudscraper` + BeautifulSoup to fetch and parse
+the statement, the input/output specification, the sample tests, and the
+time/memory limits. The user can switch problems anytime — the New-problem
+button, or just say *"give me another problem"* (router intent `new_problem`).
+The current problem is held server-side (`backend/state.py`).
+
+**Verdicts run against the sample tests** (AC/WA/RE/CE) — CF's full hidden tests
+aren't public on any judge. The reliable TLE-on-huge-input signal that the old
+calibrated problem had would need generated stress tests (a natural next step).
+The original "Count Pairs With Sum K" problem survives in `backend/problem.py`
+only as an **offline fallback** when Codeforces is unreachable.
 
 ## Layout
 
 ```
 backend/
-  main.py         FastAPI app + /chat endpoint
-  llm.py          Gemini shim (the only provider-specific file)
-  router.py       intent classifier (structured output)
+  main.py         FastAPI app + /chat, /problem, /new-problem
+  llm.py          Gemini shim (the only LLM-provider-specific file)
+  codeforces.py   fetch + parse real problems (cloudscraper + BeautifulSoup)
+  state.py        holds the current problem; load a new one on request
+  router.py       intent classifier (concept/strategy/solution/new_problem/chitchat)
   tutor.py        guardrailed conceptual Q&A
+  screener.py     feasibility pre-screen (blind to the problem)
   translator.py   NL approach → C++ → sandbox → faithful verdict
   sandbox.py      host-side: build temp dir, invoke Docker, parse results
-  problem.py      the static problem + generated test suite
+  problem.py      Problem model + offline fallback problem
   prompts.py      system prompts (pure-executor + no-hints rules live here)
   requirements.txt
 sandbox/

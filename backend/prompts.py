@@ -6,7 +6,7 @@ Two rules are load-bearing and repeated deliberately:
 """
 from __future__ import annotations
 
-from .problem import INPUT_FORMAT, PROBLEM
+from .problem import Problem
 
 
 ROUTER_SYSTEM = """\
@@ -30,6 +30,11 @@ Classify the message into exactly one intent:
   (steps, loops, what to compute). Example: "loop over every pair and count the
   ones that add up to K". These go to the translator.
 
+- "new_problem": the user wants to switch to a different problem — change it,
+  skip it, try another/a new/the next one, or get a different challenge.
+  Examples: "give me another problem", "change the problem", "next one",
+  "I want a different problem", "try something else".
+
 - "chitchat": greetings, thanks, or anything unrelated.
 
 Judge intent, not keywords. "What is a hash map?" is concept; "should I use a
@@ -38,7 +43,7 @@ how to solve THIS problem.
 """
 
 
-def tutor_system() -> str:
+def tutor_system(problem: Problem) -> str:
     # The tutor sees the statement + tags so it can recognise a problem-specific
     # question and refuse it — but it is NEVER given the intended solution, so
     # there is nothing for it to leak even if it wanted to.
@@ -66,9 +71,9 @@ problem the learner is working on and its topic tags. Do not volunteer anything
 from it, and never map a concept onto it.
 
 --- problem statement (context only) ---
-{PROBLEM.statement}
+{problem.statement}
 --- topic tags (context only) ---
-{", ".join(PROBLEM.tags)}
+{", ".join(problem.tags)}
 """
 
 
@@ -81,7 +86,7 @@ REFUSAL_MESSAGE = (
 )
 
 
-def feasibility_screen_system() -> str:
+def feasibility_screen_system(problem: Problem) -> str:
     return f"""\
 You are a feasibility screener. BEFORE any code is written, you decide whether a
 learner's described solution is POSSIBLE and FEASIBLE to carry out as a concrete
@@ -116,11 +121,11 @@ Never reject a solution merely for being slow, or for missing small
 implementation details — only for being impossible or infeasible as described.
 
 --- input / output format (the ONLY variables available; no other context) ---
-{INPUT_FORMAT}
+{problem.io_format}
 """
 
 
-def translator_codegen_system() -> str:
+def translator_codegen_system(problem: Problem) -> str:
     return f"""\
 You convert a learner's plain-language description of an algorithm into a single
 self-contained C++17 program.
@@ -159,7 +164,7 @@ cpp_source, and a one-sentence plain-language restatement of the implemented
 algorithm in approach_summary.
 
 --- input / output format (this is ALL you are told about the data) ---
-{INPUT_FORMAT}
+{problem.io_format}
 """
 
 

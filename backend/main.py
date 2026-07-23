@@ -1,9 +1,12 @@
-"""FastAPI app tying the router + tutor + translator together, plus a static
-chat UI.
+"""FastAPI app tying router + tutor + translator together, plus a static chat UI.
 
-POST /chat  {message, history?}  ->  {intent, reply, meta}
-GET  /       -> the chat UI
-GET  /problem -> the (agent-visible) problem statement + tags
+Problems come from Codeforces (state.current / state.load_new); the user can ask
+for a new one in chat ("give me another problem") or via the New-problem button.
+
+POST /chat        {message, history?}     -> {intent, reply, meta}
+POST /new-problem                         -> {problem}
+GET  /problem                             -> current problem summary
+GET  /                                    -> the chat UI
 """
 from __future__ import annotations
 
@@ -13,8 +16,8 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from . import router, tutor, translator
-from .problem import PROBLEM
+from . import router, state, translator, tutor
+from .problem import Problem
 from .prompts import REFUSAL_MESSAGE
 
 app = FastAPI(title="CP Tutor")
@@ -24,14 +27,26 @@ _FRONTEND = os.path.join(os.path.dirname(__file__), "..", "frontend", "index.htm
 
 class ChatRequest(BaseModel):
     message: str
-    # prior turns for the tutor: [{"role": "user"|"assistant", "content": "..."}]
-    history: list[dict] | None = None
+    history: list[dict] | None = None  # tutor turns: [{"role","content"}, ...]
 
 
 class ChatResponse(BaseModel):
     intent: str
     reply: str
     meta: dict = {}
+
+
+def _summary(p: Problem) -> dict:
+    return {
+        "name": p.name,
+        "statement": p.statement,
+        "tags": p.tags,
+        "url": p.url,
+        "rating": p.rating,
+        "source": p.source,
+        "time_limit_ms": p.time_limit_ms,
+        "num_sample_tests": len(p.tests),
+    }
 
 
 @app.get("/")
@@ -41,8 +56,12 @@ def index() -> FileResponse:
 
 @app.get("/problem")
 def problem() -> dict:
-    return {"statement": PROBLEM.statement, "tags": PROBLEM.tags,
-            "time_limit_ms": PROBLEM.time_limit_ms}
+    return _summary(state.current())
+
+
+@app.post("/new-problem")
+def new_problem() -> dict:
+    return _summary(state.load_new())
 
 
 @app.post("/chat", response_model=ChatResponse)
@@ -62,31 +81,39 @@ def chat(req: ChatRequest) -> ChatResponse:
 
 def _handle(req: ChatRequest) -> ChatResponse:
     routed = router.route(req.message)
+    prob = state.current()
+
+    if routed.intent == "new_problem":
+        prob = state.load_new()
+        rating = f" (rating {prob.rating})" if prob.rating else ""
+        return ChatResponse(
+            intent="new_problem",
+            reply=(
+                f"Here's a new problem: {prob.name}{rating}. "
+                "It's shown on the left. Read it, then describe how you'd solve "
+                "it and I'll build and run your approach — or ask me about any "
+                "general concept."
+            ),
+            meta={"problem": _summary(prob), "reason": routed.reason},
+        )
 
     if routed.intent == "strategy":
-        return ChatResponse(
-            intent="strategy",
-            reply=REFUSAL_MESSAGE,
-            meta={"reason": routed.reason},
-        )
+        return ChatResponse(intent="strategy", reply=REFUSAL_MESSAGE,
+                            meta={"reason": routed.reason})
 
     if routed.intent == "concept":
-        return ChatResponse(
-            intent="concept",
-            reply=tutor.answer(req.message, req.history),
-            meta={"reason": routed.reason},
-        )
+        return ChatResponse(intent="concept",
+                            reply=tutor.answer(prob, req.message, req.history),
+                            meta={"reason": routed.reason})
 
     if routed.intent == "solution":
-        outcome = translator.translate_and_run(req.message)
+        outcome = translator.translate_and_run(prob, req.message)
         return ChatResponse(
             intent="solution",
             reply=outcome.reply,
             meta={
                 "verdict": outcome.verdict,
                 "approach_summary": outcome.approach_summary,
-                # source is returned for the demo UI; a real product would gate
-                # this behind an explicit "show me the code" request
                 "cpp_source": outcome.cpp_source,
             },
         )
@@ -95,8 +122,9 @@ def _handle(req: ChatRequest) -> ChatResponse:
     return ChatResponse(
         intent="chitchat",
         reply=(
-            "Hi! Describe the solution you have in mind for the problem and I'll "
-            "run it, or ask me to explain any general programming concept."
+            "Hi! Describe the solution you have in mind for the problem on the "
+            "left and I'll run it, ask me to explain any general programming "
+            "concept, or say 'give me another problem' to switch."
         ),
         meta={"reason": routed.reason},
     )

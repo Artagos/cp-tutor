@@ -9,12 +9,17 @@
     * { box-sizing: border-box; }
     body {
       margin: 0; font: 15px/1.5 system-ui, sans-serif;
-      display: grid; grid-template-columns: 340px 1fr; height: 100vh;
+      display: grid; grid-template-columns: 360px 1fr; height: 100vh;
     }
     aside { padding: 20px; border-right: 1px solid #8883; overflow-y: auto; }
-    aside h1 { font-size: 18px; margin: 0 0 4px; }
-    aside .tags { color: #888; font-size: 13px; margin-bottom: 12px; }
+    .head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+    aside h1 { font-size: 17px; margin: 0; }
+    aside .meta { color: #888; font-size: 13px; margin: 4px 0 12px; }
+    aside .meta a { color: #2563eb; }
     aside pre { white-space: pre-wrap; font: 13px/1.45 ui-monospace, monospace; }
+    #newBtn { font: 12px system-ui; padding: 5px 10px; border: 1px solid #8886;
+              border-radius: 8px; background: transparent; color: inherit; cursor: pointer; white-space: nowrap; }
+    #newBtn:disabled { opacity: .5; cursor: default; }
     main { display: flex; flex-direction: column; min-width: 0; }
     #log { flex: 1; overflow-y: auto; padding: 20px; }
     .msg { max-width: 680px; margin: 0 0 14px; padding: 10px 14px; border-radius: 12px; white-space: pre-wrap; }
@@ -27,26 +32,30 @@
     form { display: flex; gap: 8px; padding: 16px; border-top: 1px solid #8883; }
     textarea { flex: 1; resize: none; padding: 10px; border-radius: 8px;
                border: 1px solid #8886; font: inherit; background: transparent; color: inherit; }
-    button { padding: 0 18px; border: 0; border-radius: 8px; background: #2563eb;
+    button.send { padding: 0 18px; border: 0; border-radius: 8px; background: #2563eb;
              color: #fff; font: inherit; cursor: pointer; }
-    button:disabled { opacity: .5; cursor: default; }
+    button.send:disabled { opacity: .5; cursor: default; }
   </style>
 </head>
 <body>
   <aside>
-    <h1>The problem</h1>
-    <div class="tags" id="tags"></div>
-    <pre id="statement">loading…</pre>
+    <div class="head">
+      <h1 id="pname">loading…</h1>
+      <button id="newBtn" title="Fetch a different Codeforces problem">🎲 New problem</button>
+    </div>
+    <div class="meta" id="pmeta"></div>
+    <pre id="statement"></pre>
   </aside>
   <main>
     <div id="log">
-      <div class="msg bot"><span class="tag">tutor</span>Describe the solution you
-have in mind and I'll run it — or ask me to explain any general concept. I won't
-tell you how to solve the problem, though; that part's yours.</div>
+      <div class="msg bot"><span class="tag">tutor</span>Read the problem on the left,
+then describe how you'd solve it and I'll build and run your approach. I won't
+tell you how to solve it — that part's yours. Ask me general concepts anytime, or
+say "give me another problem" to switch.</div>
     </div>
     <form id="form">
-      <textarea id="input" rows="2" placeholder="Describe your approach, or ask a concept question…"></textarea>
-      <button id="send" type="submit">Send</button>
+      <textarea id="input" rows="2" placeholder="Describe your approach, ask a concept question, or say 'new problem'…"></textarea>
+      <button class="send" id="send" type="submit">Send</button>
     </form>
   </main>
 
@@ -55,13 +64,30 @@ tell you how to solve the problem, though; that part's yours.</div>
     const form = document.getElementById("form");
     const input = document.getElementById("input");
     const send = document.getElementById("send");
-    // tutor history only (concept turns); translator turns are one-shot
-    const history = [];
+    const newBtn = document.getElementById("newBtn");
+    const history = [];  // tutor (concept) turns only
 
-    fetch("/problem").then(r => r.json()).then(p => {
-      document.getElementById("statement").textContent = p.statement;
-      document.getElementById("tags").textContent = "tags: " + p.tags.join(", ");
-    });
+    function renderProblem(p) {
+      document.getElementById("pname").textContent = p.name || "Problem";
+      const bits = [];
+      if (p.rating) bits.push("rating " + p.rating);
+      if (p.source) bits.push(p.source);
+      if (typeof p.num_sample_tests === "number") bits.push(p.num_sample_tests + " sample test(s)");
+      const meta = document.getElementById("pmeta");
+      meta.textContent = bits.join(" · ");
+      if (p.url) {
+        meta.appendChild(document.createTextNode("  "));
+        const a = document.createElement("a");
+        a.href = p.url; a.target = "_blank"; a.textContent = "open on Codeforces ↗";
+        meta.appendChild(a);
+      }
+      document.getElementById("statement").textContent = p.statement || "";
+    }
+
+    function loadProblem() {
+      return fetch("/problem").then(r => r.json()).then(renderProblem);
+    }
+    loadProblem();
 
     function add(role, text, tag, code) {
       const el = document.createElement("div");
@@ -71,7 +97,24 @@ tell you how to solve the problem, though; that part's yours.</div>
       if (code) { const c = document.createElement("pre"); c.className = "code"; c.textContent = code; el.appendChild(c); }
       log.appendChild(el);
       log.scrollTop = log.scrollHeight;
+      return el;
     }
+
+    newBtn.addEventListener("click", async () => {
+      newBtn.disabled = true;
+      const ph = add("bot", "Fetching a new problem…", "system");
+      try {
+        const p = await (await fetch("/new-problem", { method: "POST" })).json();
+        renderProblem(p);
+        ph.remove();
+        add("bot", "New problem loaded: " + p.name + ". Read it on the left and describe your approach.", "new_problem");
+      } catch (err) {
+        ph.remove();
+        add("bot", "Couldn't fetch a new problem: " + err, "error");
+      } finally {
+        newBtn.disabled = false;
+      }
+    });
 
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
@@ -80,8 +123,7 @@ tell you how to solve the problem, though; that part's yours.</div>
       add("user", message);
       input.value = "";
       send.disabled = true;
-      add("bot", "…", "thinking");
-      const placeholder = log.lastChild;
+      const ph = add("bot", "…", "thinking");
       try {
         const resp = await fetch("/chat", {
           method: "POST",
@@ -89,16 +131,17 @@ tell you how to solve the problem, though; that part's yours.</div>
           body: JSON.stringify({ message, history }),
         });
         const data = await resp.json();
-        placeholder.remove();
+        ph.remove();
         const code = data.meta && data.meta.cpp_source ? data.meta.cpp_source : null;
         const tag = data.meta && data.meta.verdict ? data.intent + " · " + data.meta.verdict : data.intent;
         add("bot", data.reply, tag, code);
+        if (data.intent === "new_problem") loadProblem();
         if (data.intent === "concept") {
           history.push({ role: "user", content: message });
           history.push({ role: "assistant", content: data.reply });
         }
       } catch (err) {
-        placeholder.remove();
+        ph.remove();
         add("bot", "Something went wrong: " + err, "error");
       } finally {
         send.disabled = false;

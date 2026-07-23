@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from .llm import ROUTER_MODEL, generate_structured
 from .prompts import ROUTER_SYSTEM
 
-Intent = Literal["concept", "strategy", "solution", "chitchat"]
+Intent = Literal["concept", "strategy", "solution", "new_problem", "chitchat"]
 
 
 class Routed(BaseModel):
