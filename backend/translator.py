@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
+from . import screener
 from .llm import generate, generate_structured
 from .prompts import translator_codegen_system, VERDICT_EXPLAINER_SYSTEM
 from .sandbox import RunResult, run_cpp
@@ -110,7 +111,29 @@ def _gate_reply(issue: str) -> str:
     )
 
 
+def _infeasible_reply(issue: str) -> str:
+    return (
+        "Before building anything, I checked whether what you described can "
+        "actually be carried out — and as written, it can't:\n\n"
+        f"{issue}\n\n"
+        "Describe a concrete step-by-step procedure over the given inputs and "
+        "I'll build it and run it."
+    )
+
+
 def translate_and_run(described_approach: str) -> TranslationOutcome:
+    # Pre-screen: is the described solution even possible/feasible? (Blind to the
+    # problem — same clean context as codegen.) Runs before any code is written.
+    verdict = screener.screen(described_approach)
+    if not verdict.feasible:
+        return TranslationOutcome(
+            reply=_infeasible_reply(verdict.issue or
+                                    "The described solution can't be carried out as stated."),
+            cpp_source="",
+            verdict="INFEASIBLE",
+            approach_summary="",
+        )
+
     program = _generate_cpp(described_approach)
 
     # Gate: the description wasn't implementable — return specific feedback and
@@ -125,6 +148,20 @@ def translate_and_run(described_approach: str) -> TranslationOutcome:
         )
 
     run = run_cpp(program.cpp_source)
+
+    # Sandbox infrastructure failure (e.g. Docker down) — not the user's code.
+    if run.infra_error:
+        return TranslationOutcome(
+            reply=(
+                "I built your program, but couldn't run it just now — the "
+                "sandbox that executes code isn't available at the moment. "
+                "This isn't a problem with your solution. Please try again in a bit."
+            ),
+            cpp_source=program.cpp_source,
+            verdict="SANDBOX_UNAVAILABLE",
+            approach_summary=program.approach_summary,
+        )
+
     facts = _verdict_facts(program, run)
     reply = _explain(facts)
 

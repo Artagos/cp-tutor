@@ -23,6 +23,9 @@ class RunResult:
     ok: bool                     # True unless a compile error occurred
     compile_error: str | None
     results: list[dict]          # per-test dicts as produced by runner.py
+    # set when the sandbox itself couldn't run (Docker down, etc.) — NOT the
+    # user's fault, so it must not be reported as a compile error
+    infra_error: str | None = None
 
     @property
     def all_accepted(self) -> bool:
@@ -66,15 +69,20 @@ def run_cpp(source: str) -> RunResult:
         with open(os.path.join(workdir, "manifest.json"), "w") as f:
             json.dump(manifest, f)
 
-        _invoke_docker(workdir)
+        proc = _invoke_docker(workdir)
 
         results_path = os.path.join(workdir, "results.json")
         if not os.path.exists(results_path):
+            detail = (proc.stderr or proc.stdout or "").strip()[:500]
             return RunResult(
                 ok=False,
-                compile_error="Sandbox produced no results (the run crashed or "
-                "timed out at the container level).",
+                compile_error=None,
                 results=[],
+                infra_error=(
+                    "The sandbox couldn't run (is Docker running?). "
+                    f"Details: {detail}" if detail else
+                    "The sandbox couldn't run (is Docker running?)."
+                ),
             )
         payload = json.load(open(results_path))
 
@@ -83,7 +91,7 @@ def run_cpp(source: str) -> RunResult:
     return RunResult(ok=True, compile_error=None, results=payload["results"])
 
 
-def _invoke_docker(workdir: str) -> None:
+def _invoke_docker(workdir: str) -> subprocess.CompletedProcess:
     # Container-level caps; runner.py enforces finer per-test limits inside.
     container_mem_mb = PROBLEM.memory_limit_mb + 128
     cmd = [
@@ -97,4 +105,4 @@ def _invoke_docker(workdir: str) -> None:
     ]
     # Generous overall ceiling; per-test timeouts are handled inside the container.
     overall_timeout = (PROBLEM.time_limit_ms / 1000.0) * len(PROBLEM.tests) + 90
-    subprocess.run(cmd, timeout=overall_timeout, capture_output=True, text=True)
+    return subprocess.run(cmd, timeout=overall_timeout, capture_output=True, text=True)

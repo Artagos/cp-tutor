@@ -17,12 +17,21 @@ I use a hash map here?"). No hints, no strategy — the learner does the thinkin
    the user described. It never optimizes, corrects the algorithm, or names a
    better one. When a solution TLEs, that timeout is the teaching signal.
 
-   **The codegen step is blind to the problem.** It is given only the raw I/O
-   format and the user's algorithm — never the statement, constraints, or intended
-   solution — so it *cannot* infer a smarter approach or fill algorithmic gaps.
-   If the description is too vague/contradictory/infeasible to translate, it
-   **gates** (`verdict: UNCLEAR`) and tells the user exactly what it couldn't
-   turn into code, instead of guessing.
+   **The whole translate path is blind to the problem.** Every step below is
+   given only the raw I/O format and the user's algorithm — never the statement,
+   constraints, or intended solution — so nothing can infer a smarter approach or
+   fill algorithmic gaps:
+
+   1. **Feasibility screen** (`screener.py`) — runs *first*, before any code. Is
+      the described solution even possible/feasible to carry out on the given
+      inputs? Rejects non-algorithms, contradictions, and references to
+      unavailable data with `verdict: INFEASIBLE` + specific feedback. It does
+      **not** reject slow approaches — a naive O(n²) is feasible (that's the point).
+   2. **Codegen gate** (`translator.py`) — if the approach is feasible but too
+      vague/contradictory to translate faithfully, it **gates** (`verdict:
+      UNCLEAR`) and says exactly what it couldn't turn into code, instead of guessing.
+   3. **Run** — only a clean, feasible, implementable description reaches the
+      sandbox.
 
 2. **Tutor (guardrailed Q&A)** — answers general, abstract CS questions. It is
    deliberately **not given the problem's intended solution**, so it can't leak
@@ -37,10 +46,10 @@ routed through a single shim (`backend/llm.py`) so the provider is swappable.
 
 ```
  Chat UI ──▶ Router ──┬─▶ Tutor        conceptual Q&A, no hints
-   (Gemini flash-lite)├─▶ Translator   NL → C++ → sandbox
+   (Gemini flash-lite)├─▶ Solution pipeline (all blind to the problem):
+                      │      Feasibility screen ─▶ Codegen gate ─▶ C++ ─▶ Sandbox
+                      │      (INFEASIBLE)          (UNCLEAR)              (AC/WA/TLE/RE/CE)
                       └─▶ (refusal / chitchat handled inline)
-                                │
-                           Sandbox (Docker + g++)   compile & run vs tests
 ```
 
 ## The static problem (v0)
